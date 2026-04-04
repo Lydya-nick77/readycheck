@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # ReadyCheck
 
 ReadyCheck is an Ashita v4 addon for HorizonXI that runs a party/alliance ready check.
@@ -94,4 +93,3 @@ You can edit these values in `readycheck.lua`:
 - Trigger/Yes/No message strings
 - Timeout duration (currently 30 seconds)
 - Sound file path (currently `sound\\levelup2.wav`)
->>>>>>> a8732035a4db881e1a584cf6675d8db20ec0885d
