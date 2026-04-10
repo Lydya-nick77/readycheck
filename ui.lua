@@ -141,7 +141,7 @@ local TRACKER_FLAGS = bit.bor(
 local COLOR_READY     = { 0.20, 1.00, 0.20, 1.0 }
 local COLOR_NOT_READY = { 1.00, 0.25, 0.25, 1.0 }
 local COLOR_PENDING   = { 1.00, 1.00, 1.00, 1.0 }
-local ICON_SIZE       = { 18, 18 }
+local ICON_SIZE       = { 20, 20 }
 local ICON_UV0        = { 0, 0 }
 local ICON_UV1        = { 1, 1 }
 local ICON_TINT       = { 1, 1, 1, 1 }
@@ -149,6 +149,7 @@ local ICON_BORDER     = { 0, 0, 0, 0 }
 local PIVOT_CENTER    = { 0.5, 0.5 }
 local BTN_YES_NO      = { 100, 28 }
 local BTN_CLOSE       = { -1, 24 }
+local FONT_SCALE      = 1.2
 local BTN_PROMPT      = { 120, 36 }
 -- Prompt button colours: deep red (matches WoW-style dark red buttons).
 local BTN_YES_COL        = { 0.45, 0.12, 0.10, 1.0 }
@@ -179,8 +180,7 @@ local function render_prompt(state, handlers)
     imgui.SetNextWindowBgAlpha(0.95)
 
     if imgui.Begin('Ready Check##prompt', state.prompt_open, PROMPT_FLAGS) then
-        -- ── Header: who initiated ────────────────────────────────────────────
-        local sender = state.prompt_sender or 'Someone'
+        imgui.SetWindowFontScale(FONT_SCALE)        local sender = state.prompt_sender or 'Someone'
         imgui.Spacing()
         imgui.PushStyleColor(ImGuiCol_Text, COLOR_GOLD_BRIGHT)
         local header = sender .. ' has initiated a ready check.'
@@ -218,7 +218,7 @@ local function render_prompt(state, handlers)
         imgui.PushStyleColor(ImGuiCol_Button,        BTN_YES_COL)
         imgui.PushStyleColor(ImGuiCol_ButtonHovered, BTN_YES_COL_HOVER)
         imgui.PushStyleColor(ImGuiCol_ButtonActive,  BTN_YES_COL_ACTIVE)
-        if imgui.Button('Yes', BTN_PROMPT) and not state.prompt_answered then
+        if imgui.Button('Ready', BTN_PROMPT) and not state.prompt_answered then
             handlers.answer_yes()
         end
         imgui.PopStyleColor(3)
@@ -228,7 +228,7 @@ local function render_prompt(state, handlers)
         imgui.PushStyleColor(ImGuiCol_Button,        BTN_NO_COL)
         imgui.PushStyleColor(ImGuiCol_ButtonHovered, BTN_NO_COL_HOVER)
         imgui.PushStyleColor(ImGuiCol_ButtonActive,  BTN_NO_COL_ACTIVE)
-        if imgui.Button('No', BTN_PROMPT) and not state.prompt_answered then
+        if imgui.Button('Not Ready', BTN_PROMPT) and not state.prompt_answered then
             handlers.answer_no()
         end
         imgui.PopStyleColor(3)
@@ -245,6 +245,7 @@ local function render_tracker(state, handlers)
     imgui.SetNextWindowBgAlpha(0.90)
 
     if imgui.Begin('Ready Check##tracker', state.checker_open, TRACKER_FLAGS) then
+        imgui.SetWindowFontScale(FONT_SCALE)
         imgui.Text('Party / Alliance Status')
         imgui.SameLine()
         local secs_left = state.checker_deadline

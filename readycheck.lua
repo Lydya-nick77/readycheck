@@ -1,14 +1,19 @@
 --[[
-* ReadyCheck - Party/Alliance ready check addon for Ashita v4 (HorizonXI).
+* ReadyCheck - Party/Alliance ready check addon for Ashita v4 (Tested on HorizonXI).
 *
 * Usage:
-*   /readycheck        - Sends a ready check to party chat and opens the
-*                        response tracker window.
+*   /readycheck              - Sends a ready check to party chat and opens the
+*                              response tracker window.
+*   /readycheck sound        - Shows the current sound file path.
+*   /readycheck sound <file> - Sets the sound file.  <file> can be a filename
+*                              (looked up in the addon's sound\ folder) or a
+*                              full path to any .wav file.  The setting is
+*                              saved to settings.txt and restored on reload.
 *
 * How it works:
 *   The sender's client broadcasts a marker message in /p chat.
 *   Every party member who has this addon loaded sees a prompt window
-*   with "Yes" and "No" buttons.  Their reply is sent back into /p chat
+*   with "I'm Ready" and "Not Ready" buttons.  Their reply is sent back into /p chat
 *   and the sender's tracker window colourises each name:
 *     White  = no reply yet
 *     Green  = ready
@@ -17,7 +22,7 @@
 
 addon.name    = 'ReadyCheck'
 addon.author  = 'Lydya'
-addon.version = '0.3.0'
+addon.version = '0.4.0'
 addon.desc    = 'Sends a party-wide ready check and tracks responses.'
 
 require('common')
@@ -27,14 +32,16 @@ local ui    = require('ui')
 -- ──────────────────────────────────────────────────────────────────────────────
 -- Marker strings (plain ASCII so string.find without regex is safe)
 -- ──────────────────────────────────────────────────────────────────────────────
-local TRIGGER_MSG = 'Are you ready? Sent by ReadyCheck'
-local YES_MSG     = 'I am ready - Sent by ReadyCheck'
-local NO_MSG      = 'I am not ready - Sent by ReadyCheck'
+local RC_PREFIX   = '\xEF\xBF\xBD[RC]'
+local TRIGGER_MSG = RC_PREFIX .. 'check'
+local YES_MSG     = RC_PREFIX .. 'yes'
+local NO_MSG      = RC_PREFIX .. 'no'
 
 -- Sound settings
-local SOUND_FILE = addon.path .. 'sound\\levelup2.wav'
+local SOUND_FILE = addon.path .. 'sound\\wow-readycheck.wav'
 local SOUND_ON_CHECKER = true   -- Play sound when starting a ready check
 local SOUND_ON_PROMPT = true    -- Play sound when receiving a ready-check prompt
+local SETTINGS_FILE   = addon.path .. 'settings.txt'
 
 -- Chat modes that carry party / alliance messages
 local PARTY_MODES = { [13] = true, [215] = true }
@@ -123,16 +130,6 @@ local function parse_sender(text)
     return nil, clean
 end
 
-local function normalize_chat_tokens(text)
-    local s = strip_color_codes(text or ''):lower()
-    s = s:gsub('^%s*|%d+|%s*', ''):gsub('^%s*%[%d%d:%d%d:?%d?%d?%]%s*', '')
-    s = s:gsub('[^%w%s]', ' '):gsub('%s+', ' ')
-    return s
-end
-
-local TOKEN_TRIGGER = 'are you ready sent by readycheck'
-local TOKEN_YES     = 'i am ready sent by readycheck'
-local TOKEN_NO      = 'i am not ready sent by readycheck'
 
 --- Strip colour codes and chat-addon prefixes, return lowercase cleaned string.
 local function clean_message(text)
@@ -206,6 +203,25 @@ local function send_party(msg)
     AshitaCore:GetChatManager():QueueCommand(-1, '/p ' .. msg)
 end
 
+local function load_sound_setting()
+    local f = io.open(SETTINGS_FILE, 'r')
+    if f then
+        local line = f:read('*l')
+        f:close()
+        if line and line ~= '' then
+            SOUND_FILE = line
+        end
+    end
+end
+
+local function save_sound_setting()
+    local f = io.open(SETTINGS_FILE, 'w')
+    if f then
+        f:write(SOUND_FILE)
+        f:close()
+    end
+end
+
 local function play_readycheck_sound()
     ashita.misc.play_sound(SOUND_FILE)
 end
@@ -271,7 +287,7 @@ local function start_ready_check()
         update_member_status(my_name, 'ready')
     end
     if SOUND_ON_CHECKER then play_readycheck_sound() end
-    send_party(TRIGGER_MSG)
+    send_party(TRIGGER_MSG .. ' Are you ready?')
 end
 
 -- ──────────────────────────────────────────────────────────────────────────────
@@ -290,6 +306,24 @@ ashita.events.register('command', 'readycheck_command_cb', function(e)
     local args = e.command:args()
     if #args == 0 or args[1] ~= '/readycheck' then return end
     e.blocked = true
+
+    if #args >= 2 and args[2]:lower() == 'sound' then
+        if #args >= 3 then
+            local path = table.concat(args, ' ', 3)
+            -- If no path separator, treat as a filename inside the addon sound\ folder.
+            if not path:find('[/\\]') then
+                path = addon.path .. 'sound\\' .. path
+            end
+            SOUND_FILE = path
+            save_sound_setting()
+            print('[ReadyCheck] Sound file set to: ' .. SOUND_FILE)
+        else
+            print('[ReadyCheck] Current sound file: ' .. SOUND_FILE)
+            print('[ReadyCheck] Usage: /readycheck sound <filename or full path>')
+        end
+        return
+    end
+
     start_ready_check()
 end)
 
@@ -299,14 +333,31 @@ end)
 ashita.events.register('text_in', 'readycheck_text_in_cb', function(e)
     local mode = bit.band(e.mode_modified or e.mode or 0, 0x000000FF)
     local raw  = e.message_modified or e.message or ''
-    -- Normalize once; derive all three flags from the same string.
-    local norm       = normalize_chat_tokens(raw)
-    local is_trigger = norm:find(TOKEN_TRIGGER, 1, true) ~= nil
-    local is_yes     = not is_trigger and norm:find(TOKEN_YES, 1, true) ~= nil
-    local is_no      = not is_trigger and not is_yes and norm:find(TOKEN_NO, 1, true) ~= nil
+    -- Detect by looking for our prefix directly in the (colour-stripped) message.
+    local clean      = strip_color_codes(raw)
+    local is_trigger = clean:find(TRIGGER_MSG, 1, true) ~= nil
+    local is_yes     = not is_trigger and clean:find(YES_MSG, 1, true) ~= nil
+    local is_no      = not is_trigger and not is_yes and clean:find(NO_MSG, 1, true) ~= nil
     local is_marker  = is_trigger or is_yes or is_no
 
+    -- Detect plain text replies in party chat from non-addon players.
+    -- Only considered when the checker window is open and the message is ONLY
+    -- that word/character (possibly with surrounding whitespace).
+    local is_manual_yes = false
+    local is_manual_no  = false
+    if not is_marker and PARTY_MODES[mode] and state.checker_open[1] then
+        local trimmed = clean:match('^%s*(.-)%s*$')
+        if trimmed == '/' or trimmed == '\\' or trimmed == 'yes' then
+            is_manual_yes = true
+        elseif trimmed == 'no' then
+            is_manual_no = true
+        end
+    end
+
     if not PARTY_MODES[mode] and not is_marker then return end
+
+    -- Block addon sync messages from appearing in chat (like Markers does).
+    if is_marker then e.blocked = true end
 
     -- ── Detect the ready-check trigger ──────────────────────────────────────
     if is_trigger then
@@ -325,11 +376,11 @@ ashita.events.register('text_in', 'readycheck_text_in_cb', function(e)
     if not state.checker_open[1] then return end
 
     -- ── Detect YES / NO response ─────────────────────────────────────────────
-    if is_yes or is_no then
+    if is_yes or is_no or is_manual_yes or is_manual_no then
         local sender = parse_sender(raw) or resolve_sender_from_party(raw)
                     or infer_single_pending_member()
         if sender then
-            update_member_status(sender, is_yes and 'ready' or 'not_ready')
+            update_member_status(sender, (is_yes or is_manual_yes) and 'ready' or 'not_ready')
         end
     end
 end)
@@ -375,3 +426,6 @@ ashita.events.register('d3d_present', 'readycheck_present_cb', function()
         close_checker()
     end
 end)
+
+-- Apply any saved sound preference on addon load.
+load_sound_setting()
