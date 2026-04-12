@@ -166,6 +166,7 @@ local BTN_NO_COL         = { 0.38, 0.10, 0.08, 1.0 }
 local BTN_NO_COL_HOVER   = { 0.55, 0.16, 0.12, 1.0 }
 local BTN_NO_COL_ACTIVE  = { 0.25, 0.06, 0.05, 1.0 }
 local COLOR_GOLD_BRIGHT  = { 0.957, 0.855, 0.592, 1.0 }
+local MIN_PARTY_COL_W    = 125
 -- Mutable position buffer updated each frame; avoids a new table per window.
 local WIN_CENTER      = { 0, 0 }
 
@@ -187,7 +188,8 @@ local function render_prompt(state, handlers)
     imgui.SetNextWindowBgAlpha(0.95)
 
     if imgui.Begin('Ready Check##prompt', state.prompt_open, PROMPT_FLAGS) then
-        imgui.SetWindowFontScale(FONT_SCALE)        local sender = state.prompt_sender or 'Someone'
+        imgui.SetWindowFontScale(FONT_SCALE)
+        local sender = state.prompt_sender or 'Someone'
         imgui.Spacing()
         imgui.PushStyleColor(ImGuiCol_Text, COLOR_GOLD_BRIGHT)
         local header = sender .. ' has initiated a ready check.'
@@ -278,14 +280,65 @@ local function render_tracker(state, handlers)
                 if #parties[p] > 0 then num_cols = p; break end
             end
 
-            imgui.Columns(num_cols, 'rc_party_cols', num_cols > 1)
-
-            for col = 1, num_cols do
-                if num_cols > 1 then
-                    imgui.TextDisabled('Party ' .. col)
-                    imgui.Separator()
+            if num_cols > 1 then
+                local content_w = imgui.GetContentRegionAvail()
+                local col_w = math.max(MIN_PARTY_COL_W, math.floor(content_w / num_cols))
+                imgui.Columns(num_cols, 'rc_party_cols', true)
+                if imgui.SetColumnWidth then
+                    for col = 0, num_cols - 1 do
+                        imgui.SetColumnWidth(col, col_w)
+                    end
                 end
-                local grp = parties[col]
+
+                -- Draw headers in a single row so Party 1/2/3 labels align.
+                for col = 1, num_cols do
+                    local header = 'Party ' .. col
+                    local text_w = imgui.CalcTextSize(header)
+                    if imgui.GetColumnWidth and text_w then
+                        local cur_x = imgui.GetCursorPosX()
+                        local this_w = imgui.GetColumnWidth()
+                        if this_w > text_w then
+                            imgui.SetCursorPosX(cur_x + (this_w - text_w) * 0.5)
+                        end
+                    end
+                    imgui.TextDisabled(header)
+                    imgui.NextColumn()
+                end
+                for col = 1, num_cols do
+                    imgui.Separator()
+                    imgui.NextColumn()
+                end
+
+                local max_rows = math.max(#parties[1], #parties[2], #parties[3])
+                for row = 1, max_rows do
+                    for col = 1, num_cols do
+                        local member = parties[col][row]
+                        if member then
+                            local status = member.status
+                            local col_c = status == 'ready'     and COLOR_READY
+                                       or status == 'not_ready' and COLOR_NOT_READY
+                                       or COLOR_PENDING
+                            imgui.PushStyleColor(ImGuiCol_Text, col_c)
+                            local icon_ptr = load_job_icon(member.job)
+                            if icon_ptr then
+                                imgui.Image(icon_ptr, ICON_SIZE, ICON_UV0, ICON_UV1, ICON_TINT, ICON_BORDER)
+                            else
+                                imgui.Dummy(ICON_SIZE)
+                            end
+                            imgui.SameLine()
+                            imgui.Text(member.name)
+                            imgui.PopStyleColor(1)
+                        else
+                            -- Keep row heights synced across columns.
+                            imgui.Dummy({ 1, ICON_SIZE[2] })
+                        end
+                        imgui.NextColumn()
+                    end
+                end
+
+                imgui.Columns(1)
+            else
+                local grp = parties[1]
                 for i = 1, #grp do
                     local member = grp[i]
                     local status = member.status
@@ -296,15 +349,14 @@ local function render_tracker(state, handlers)
                     local icon_ptr = load_job_icon(member.job)
                     if icon_ptr then
                         imgui.Image(icon_ptr, ICON_SIZE, ICON_UV0, ICON_UV1, ICON_TINT, ICON_BORDER)
-                        imgui.SameLine()
+                    else
+                        imgui.Dummy(ICON_SIZE)
                     end
+                    imgui.SameLine()
                     imgui.Text(member.name)
                     imgui.PopStyleColor(1)
                 end
-                if col < num_cols then imgui.NextColumn() end
             end
-
-            imgui.Columns(1)
         end
 
         imgui.Spacing()

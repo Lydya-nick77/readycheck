@@ -25,7 +25,7 @@
 
 addon.name    = 'ReadyCheck'
 addon.author  = 'Lydya'
-addon.version = '0.4.1'
+addon.version = '0.4.2'
 addon.desc    = 'Sends a party-wide ready check and tracks responses.'
 
 require('common')
