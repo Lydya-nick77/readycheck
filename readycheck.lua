@@ -4,6 +4,7 @@
 * Usage:
 *   /readycheck              - Sends a ready check to party chat and opens the
 *                              response tracker window.
+*   /readycheck config       - Opens the configuration UI (sound settings).
 *   /readycheck sound        - Shows the current sound file path.
 *   /readycheck sound <file> - Sets the sound file.  <file> can be a filename
 *                              (looked up in the addon's sound\ folder) or a
@@ -18,11 +19,13 @@
 *     White  = no reply yet
 *     Green  = ready
 *     Red    = not ready
+
+*  Horizonxi Approved ticket general-contact-1987
 ]]--
 
 addon.name    = 'ReadyCheck'
 addon.author  = 'Lydya'
-addon.version = '0.4.0'
+addon.version = '0.4.1'
 addon.desc    = 'Sends a party-wide ready check and tracks responses.'
 
 require('common')
@@ -63,6 +66,15 @@ local state = {
     prompt_answered = false,       -- true after Yes/No clicked (prevents double-send)
     prompt_deadline = nil,         -- os.clock() deadline for auto-close timeout
     prompt_sender   = nil,         -- name of the player who initiated the check
+
+    -- Config window
+    config_open     = { false },
+    cfg = {
+        sound_files      = {},       -- filenames found in sound\ folder
+        sound_sel_idx    = { 1 },    -- 1-based index into sound_files
+        sound_on_checker = { false },
+        sound_on_prompt  = { false },
+    },
 }
 
 -- ──────────────────────────────────────────────────────────────────────────────
@@ -203,27 +215,86 @@ local function send_party(msg)
     AshitaCore:GetChatManager():QueueCommand(-1, '/p ' .. msg)
 end
 
-local function load_sound_setting()
+local function load_settings()
     local f = io.open(SETTINGS_FILE, 'r')
     if f then
-        local line = f:read('*l')
-        f:close()
-        if line and line ~= '' then
-            SOUND_FILE = line
+        for line in f:lines() do
+            if line ~= '' then
+                local key, val = line:match('^([%a][%w_]*)=(.-)$')
+                if key == 'sound_file' and val then
+                    SOUND_FILE = val
+                elseif key == 'sound_on_checker' and val then
+                    SOUND_ON_CHECKER = (val == 'true')
+                elseif key == 'sound_on_prompt' and val then
+                    SOUND_ON_PROMPT = (val == 'true')
+                elseif not key then
+                    -- Legacy single-line format: plain path
+                    SOUND_FILE = line
+                end
+            end
         end
+        f:close()
     end
+    -- Sync config UI buffers from loaded globals.
+    state.cfg.sound_on_checker[1] = SOUND_ON_CHECKER
+    state.cfg.sound_on_prompt[1]  = SOUND_ON_PROMPT
 end
 
-local function save_sound_setting()
+local function save_settings()
     local f = io.open(SETTINGS_FILE, 'w')
     if f then
-        f:write(SOUND_FILE)
+        f:write('sound_file='       .. SOUND_FILE .. '\n')
+        f:write('sound_on_checker=' .. tostring(SOUND_ON_CHECKER) .. '\n')
+        f:write('sound_on_prompt='  .. tostring(SOUND_ON_PROMPT)  .. '\n')
         f:close()
     end
 end
 
 local function play_readycheck_sound()
     ashita.misc.play_sound(SOUND_FILE)
+end
+
+local function scan_sound_files()
+    local sound_dir = addon.path .. 'sound\\'
+    local files = ashita.fs.get_directory(sound_dir, '.*\\.wav$') or {}
+    state.cfg.sound_files = files
+    -- Find current SOUND_FILE in the list (match by filename).
+    local current_name = SOUND_FILE:match('[^\\/]+$') or ''
+    state.cfg.sound_sel_idx[1] = 1
+    for i, fname in ipairs(files) do
+        if fname:lower() == current_name:lower() then
+            state.cfg.sound_sel_idx[1] = i
+            break
+        end
+    end
+end
+
+local function get_selected_sound_path()
+    local files = state.cfg.sound_files
+    local idx   = state.cfg.sound_sel_idx[1]
+    if files and files[idx] then
+        return addon.path .. 'sound\\' .. files[idx]
+    end
+    return SOUND_FILE
+end
+
+local function open_config()
+    state.cfg.sound_on_checker[1] = SOUND_ON_CHECKER
+    state.cfg.sound_on_prompt[1]  = SOUND_ON_PROMPT
+    scan_sound_files()
+    state.config_open[1] = true
+end
+
+local function save_config()
+    SOUND_FILE       = get_selected_sound_path()
+    SOUND_ON_CHECKER = state.cfg.sound_on_checker[1]
+    SOUND_ON_PROMPT  = state.cfg.sound_on_prompt[1]
+    save_settings()
+    print('[ReadyCheck] Settings saved.')
+end
+
+local function test_config_sound()
+    ashita.misc.play_sound(get_selected_sound_path())
 end
 
 local function everyone_answered()
@@ -294,9 +365,13 @@ end
 -- Cached handlers table – allocated once; never reallocated per frame.
 -- ──────────────────────────────────────────────────────────────────────────────
 local handlers = {
-    answer_yes    = answer_yes,
-    answer_no     = answer_no,
-    close_checker = close_checker,
+    answer_yes        = answer_yes,
+    answer_no         = answer_no,
+    close_checker     = close_checker,
+    open_config       = open_config,
+    save_config       = save_config,
+    test_config_sound = test_config_sound,
+    scan_sound_files  = scan_sound_files,
 }
 
 -- ──────────────────────────────────────────────────────────────────────────────
@@ -307,6 +382,11 @@ ashita.events.register('command', 'readycheck_command_cb', function(e)
     if #args == 0 or args[1] ~= '/readycheck' then return end
     e.blocked = true
 
+    if #args >= 2 and args[2]:lower() == 'config' then
+        open_config()
+        return
+    end
+
     if #args >= 2 and args[2]:lower() == 'sound' then
         if #args >= 3 then
             local path = table.concat(args, ' ', 3)
@@ -315,7 +395,7 @@ ashita.events.register('command', 'readycheck_command_cb', function(e)
                 path = addon.path .. 'sound\\' .. path
             end
             SOUND_FILE = path
-            save_sound_setting()
+            save_settings()
             print('[ReadyCheck] Sound file set to: ' .. SOUND_FILE)
         else
             print('[ReadyCheck] Current sound file: ' .. SOUND_FILE)
@@ -427,5 +507,5 @@ ashita.events.register('d3d_present', 'readycheck_present_cb', function()
     end
 end)
 
--- Apply any saved sound preference on addon load.
-load_sound_setting()
+-- Apply any saved settings on addon load.
+load_settings()

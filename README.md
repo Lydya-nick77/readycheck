@@ -24,11 +24,9 @@ ReadyCheck is an Ashita v4 addon for HorizonXI that runs a party/alliance ready 
 
    /readycheck
 
-3. Show or change the sound file:
+3. Show or change the sound file and activate / deactivate sounds:
 
-   /readycheck sound
-   /readycheck sound wow-readycheck.wav
-   /readycheck sound C:\path\to\custom.wav
+   /readycheck config
 
    If only a filename is given (no path separators), it is looked up in the addon's `sound\` folder.
    The setting is saved to `settings.txt` and restored automatically on reload.

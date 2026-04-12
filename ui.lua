@@ -136,6 +136,13 @@ local TRACKER_FLAGS = bit.bor(
     ImGuiWindowFlags_NoSavedSettings,
     ImGuiWindowFlags_NoMove
 )
+local CONFIG_FLAGS = bit.bor(
+    ImGuiWindowFlags_NoCollapse,
+    ImGuiWindowFlags_AlwaysAutoResize,
+    ImGuiWindowFlags_NoScrollbar,
+    ImGuiWindowFlags_NoSavedSettings,
+    ImGuiWindowFlags_NoMove
+)
 
 -- Per-row colours and icon call arguments: pre-allocated, zero GC per frame.
 local COLOR_READY     = { 0.20, 1.00, 0.20, 1.0 }
@@ -312,10 +319,87 @@ local function render_tracker(state, handlers)
     imgui.End()
 end
 
-function ui.render(state, handlers)
-    if not (state.prompt_open[1] or state.checker_open[1]) then return end
+local function render_config(state, handlers)
+    if not state.config_open[1] then return end
 
-    -- Update shared position buffer once; both render functions read it.
+    imgui.SetNextWindowPos(WIN_CENTER, ImGuiCond_Always, PIVOT_CENTER)
+    imgui.SetNextWindowBgAlpha(0.95)
+
+    if imgui.Begin('ReadyCheck Config##config', state.config_open, CONFIG_FLAGS) then
+        imgui.SetWindowFontScale(FONT_SCALE)
+
+        -- Section header
+        imgui.PushStyleColor(ImGuiCol_Text, COLOR_GOLD_BRIGHT)
+        imgui.Text('Sound Settings')
+        imgui.PopStyleColor(1)
+        imgui.Separator()
+        imgui.Spacing()
+
+        -- Checkboxes
+        imgui.Checkbox('Play sound when sending a ready check',    state.cfg.sound_on_checker)
+        imgui.Checkbox('Play sound when receiving a ready check',  state.cfg.sound_on_prompt)
+        imgui.Spacing()
+
+        -- Sound file dropdown
+        imgui.Text('Sound file:')
+        local files   = state.cfg.sound_files
+        local sel_idx = state.cfg.sound_sel_idx
+        if files and #files > 0 then
+            local preview = files[sel_idx[1]] or ''
+            imgui.SetNextItemWidth(300)
+            if imgui.BeginCombo('##rc_sound_combo', preview, ImGuiComboFlags_None) then
+                for i, fname in ipairs(files) do
+                    local selected = (i == sel_idx[1])
+                    if imgui.Selectable(fname, selected) then
+                        sel_idx[1] = i
+                    end
+                    if selected then imgui.SetItemDefaultFocus() end
+                end
+                imgui.EndCombo()
+            end
+            imgui.SameLine()
+            if imgui.Button('Refresh##rc_refresh', { 70, 0 }) then
+                handlers.scan_sound_files()
+            end
+            -- Full path hint
+            imgui.PushStyleColor(ImGuiCol_Text, { 0.55, 0.55, 0.55, 1.0 })
+            imgui.Text(addon.path .. 'sound\\' .. (files[sel_idx[1]] or ''))
+            imgui.PopStyleColor(1)
+        else
+            imgui.PushStyleColor(ImGuiCol_Text, { 0.80, 0.45, 0.20, 1.0 })
+            imgui.Text('No .wav files found in sound\\ folder.')
+            imgui.PopStyleColor(1)
+            imgui.SameLine()
+            if imgui.Button('Refresh##rc_refresh', { 70, 0 }) then
+                handlers.scan_sound_files()
+            end
+        end
+
+        imgui.Spacing()
+        imgui.Separator()
+        imgui.Spacing()
+
+        -- Action buttons
+        if imgui.Button('Test Sound', BTN_YES_NO) then
+            handlers.test_config_sound()
+        end
+        imgui.SameLine()
+        if imgui.Button('Save', BTN_YES_NO) then
+            handlers.save_config()
+        end
+        imgui.SameLine()
+        if imgui.Button('Close', BTN_YES_NO) then
+            state.config_open[1] = false
+        end
+        imgui.Spacing()
+    end
+    imgui.End()
+end
+
+function ui.render(state, handlers)
+    if not (state.prompt_open[1] or state.checker_open[1] or state.config_open[1]) then return end
+
+    -- Update shared position buffer once; all render functions read it.
     local display = imgui.GetIO().DisplaySize
     WIN_CENTER[1] = display.x * 0.5
     WIN_CENTER[2] = display.y * 0.5
@@ -323,6 +407,7 @@ function ui.render(state, handlers)
     push_xidb_theme()
     render_prompt(state, handlers)
     render_tracker(state, handlers)
+    render_config(state, handlers)
     imgui.PopStyleVar(THEME_VAR_COUNT)
     imgui.PopStyleColor(THEME_COLOR_COUNT)
 end
